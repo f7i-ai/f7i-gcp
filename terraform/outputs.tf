@@ -49,6 +49,6 @@ output "public_invoker_hint" {
 }
 
 output "service_account_token_creator_hint" {
-  description = "Grants the function SA Token Creator on itself so generateIdToken for AWS works when manage_aws_bridge_sa_token_creator_self is false."
-  value       = var.manage_aws_bridge_sa_token_creator_self ? null : "gcloud iam service-accounts add-iam-policy-binding ${google_service_account.aws_bridge_fn.email} --project=${var.project_id} --member=serviceAccount:${google_service_account.aws_bridge_fn.email} --role=roles/iam.serviceAccountTokenCreator"
+  description = "Run once as project owner: function SA must grant Token Creator to itself for generateIdToken→AWS (CI usually cannot setIamPolicy on this SA)."
+  value       = "gcloud iam service-accounts add-iam-policy-binding ${google_service_account.aws_bridge_fn.email} --project=${var.project_id} --member=serviceAccount:${google_service_account.aws_bridge_fn.email} --role=roles/iam.serviceAccountTokenCreator"
 }

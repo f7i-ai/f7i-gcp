@@ -37,9 +37,3 @@ variable "manage_cloud_function_public_invoker" {
   type        = bool
   default     = false
 }
-
-variable "manage_aws_bridge_sa_token_creator_self" {
-  description = "If true, grants the aws-bridge function SA roles/iam.serviceAccountTokenCreator on itself (required for generateIdToken toward AWS). Needs deployer iam.serviceAccounts.setIamPolicy on that SA (e.g. roles/iam.serviceAccountAdmin). If false, run output service_account_token_creator_hint once as project owner."
-  type        = bool
-  default     = false
-}
