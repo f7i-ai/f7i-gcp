@@ -2,6 +2,11 @@
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.*
+terraform.tfstate.d/
+*.tfstate.backup
+backend.hcl
+*.auto.tfbackend
+!*.tfbackend.example
 crash.log
 crash.*.log
 override.tf

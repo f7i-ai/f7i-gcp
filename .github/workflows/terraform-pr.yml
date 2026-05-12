@@ -1,15 +1,10 @@
-# Requires GitHub → GCP Workload Identity Federation.
-# https://cloud.google.com/blog/products/identity-security/enabling-keyless-authentication-from-github-actions
+# Plans on PRs targeting `dev` or `main` with the matching GCP project and state prefix.
 #
-# Repository variables (Settings → Secrets and variables → Actions → Variables):
-#   GCP_TF_STATE_BUCKET           — GCS bucket for Terraform state (same bucket; prefix separates envs)
-#   GCP_PROJECT_ID                — Fallback if dev/prod project vars are not set
-#   GCP_PROJECT_ID_DEV            — GCP project for dev (branch dev / PRs into dev); falls back to GCP_PROJECT_ID
-#   GCP_PROJECT_ID_PROD           — GCP project for prod (branch main / PRs into main); falls back to GCP_PROJECT_ID
-#   GCP_WORKLOAD_IDENTITY_PROVIDER
-#   GCP_SERVICE_ACCOUNT_EMAIL
+# Same GitHub variables as terraform-main.yml.
+# State buckets: GCP_TF_STATE_BUCKET_DEV / PROD (or GCP_TF_STATE_BUCKET fallback).
+# State prefix: terraform/gcp/dev or terraform/gcp/prod.
 
-name: Terraform (PR)
+name: Terraform GCP (PR)
 
 on:
   pull_request:
@@ -21,7 +16,7 @@ on:
       - ".github/workflows/terraform-pr.yml"
 
 concurrency:
-  group: terraform-pr-${{ github.repository }}-${{ github.head_ref }}
+  group: terraform-gcp-pr-${{ github.repository }}-${{ github.head_ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,21 +33,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Map branch target → Terraform environment
+      - name: Map base branch → GCP project, state bucket, and Terraform environment
         env:
           BASE_REF: ${{ github.base_ref }}
           PROJ_DEV: ${{ vars.GCP_PROJECT_ID_DEV || vars.GCP_PROJECT_ID }}
           PROJ_PROD: ${{ vars.GCP_PROJECT_ID_PROD || vars.GCP_PROJECT_ID }}
+          BUCKET_DEV: ${{ vars.GCP_TF_STATE_BUCKET_DEV || vars.GCP_TF_STATE_BUCKET }}
+          BUCKET_PROD: ${{ vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET }}
         run: |
           if [ "$BASE_REF" = "main" ]; then
             echo "TF_ENV=prod" >> "$GITHUB_ENV"
             echo "TF_VAR_project_id=${PROJ_PROD}" >> "$GITHUB_ENV"
             echo "TF_VAR_environment=prod" >> "$GITHUB_ENV"
+            echo "GCP_TF_STATE_BUCKET=${BUCKET_PROD}" >> "$GITHUB_ENV"
           else
             echo "TF_ENV=dev" >> "$GITHUB_ENV"
             echo "TF_VAR_project_id=${PROJ_DEV}" >> "$GITHUB_ENV"
             echo "TF_VAR_environment=dev" >> "$GITHUB_ENV"
+            echo "GCP_TF_STATE_BUCKET=${BUCKET_DEV}" >> "$GITHUB_ENV"
           fi
+
+      - name: Require configuration
+        env:
+          PROJ: ${{ github.base_ref == 'main' && (vars.GCP_PROJECT_ID_PROD || vars.GCP_PROJECT_ID) || (vars.GCP_PROJECT_ID_DEV || vars.GCP_PROJECT_ID) }}
+          WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SA: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          BUCKET_RESOLVED: ${{ github.base_ref == 'main' && (vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET) || (vars.GCP_TF_STATE_BUCKET_DEV || vars.GCP_TF_STATE_BUCKET) }}
+        run: |
+          ok=1
+          [ -n "$BUCKET_RESOLVED" ] || { echo "Set GCP_TF_STATE_BUCKET_DEV and GCP_TF_STATE_BUCKET_PROD (or GCP_TF_STATE_BUCKET fallback)"; ok=0; }
+          [ -n "$WIF" ] || { echo "Missing GCP_WORKLOAD_IDENTITY_PROVIDER"; ok=0; }
+          [ -n "$SA" ] || { echo "Missing GCP_SERVICE_ACCOUNT_EMAIL"; ok=0; }
+          [ -n "$PROJ" ] || { echo "Missing GCP project (set GCP_PROJECT_ID_DEV / GCP_PROJECT_ID_PROD or GCP_PROJECT_ID)"; ok=0; }
+          [ "$ok" -eq 1 ] || exit 1
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -63,16 +76,26 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
+      - name: Refuse local state files in workspace
+        run: |
+          shopt -s nullglob
+          files=( *.tfstate* )
+          if [ ${#files[@]} -gt 0 ]; then
+            echo "terraform.tfstate* must not be present; state must stay in GCS only."
+            ls -la "${files[@]}"
+            exit 1
+          fi
+
       - name: Terraform Format (check)
         run: terraform fmt -check -recursive
 
       - name: Terraform Init
         env:
-          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET }}
+          GCP_TF_STATE_BUCKET: ${{ env.GCP_TF_STATE_BUCKET }}
         run: |
-          terraform init -input=false \
+          terraform init -input=false -reconfigure \
             -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
-            -backend-config="prefix=terraform/state/${TF_ENV}"
+            -backend-config="prefix=terraform/gcp/${TF_ENV}"
 
       - name: Terraform Validate
         run: terraform validate
@@ -82,3 +105,6 @@ jobs:
 
       - name: Show plan (text summary)
         run: terraform show -no-color tfplan.binary
+
+      - name: Confirm no local state was written
+        run: test ! -f terraform.tfstate && test ! -f terraform.tfstate.backup

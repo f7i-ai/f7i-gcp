@@ -1,0 +1,20 @@
+{
+  "include": [
+    {
+      "key": "management",
+      "role_arn": "arn:aws:iam::935969326135:role/REPLACE_WITH_GITHUB_OIDC_ROLE"
+    },
+    {
+      "key": "cohort1",
+      "role_arn": "arn:aws:iam::211125324898:role/REPLACE_WITH_GITHUB_OIDC_ROLE"
+    },
+    {
+      "key": "cohort2",
+      "role_arn": "arn:aws:iam::043309367276:role/REPLACE_WITH_GITHUB_OIDC_ROLE"
+    },
+    {
+      "key": "cohort3",
+      "role_arn": "arn:aws:iam::471112541316:role/REPLACE_WITH_GITHUB_OIDC_ROLE"
+    }
+  ]
+}

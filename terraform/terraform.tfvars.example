@@ -1,5 +1,5 @@
-# Copy to terraform.tfvars for local runs. CI sets project + environment from the target branch.
-# Use environment = "prod" when planning the main stack locally (match state prefix in backend.hcl).
-project_id  = "anomaly-detection-496003"
-region      = "australia-southeast1"
-environment = "dev"
+# Copy to terraform.tfvars for local runs. CI uses GitHub variables (see terraform-main.yml).
+# Dev stack targets the anomaly-detection-dev project; prod uses GCP_PROJECT_ID_PROD.
+project_id    = "anomaly-detection-dev-496103"
+region        = "australia-southeast1"
+environment   = "dev"

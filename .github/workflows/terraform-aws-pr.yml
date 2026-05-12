@@ -1,0 +1,199 @@
+# PR → dev base: single plan (dev role, state prefix terraform/aws/dev).
+# PR → main base: matrix plan — one plan per row in aws/config/prod-accounts.json.
+#
+# GitHub variables: GCP_TF_STATE_BUCKET_DEV / PROD (or GCP_TF_STATE_BUCKET), WIF, SA, AWS roles…
+
+name: Terraform AWS (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - "aws/terraform/**"
+      - "aws/config/**"
+      - ".github/workflows/terraform-aws-pr.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan-dev:
+    if: github.base_ref == 'dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: terraform-aws-pr-dev-${{ github.repository }}-${{ github.head_ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: aws/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Context (dev)
+        env:
+          ROLE_ARN: ${{ vars.AWS_ROLE_ARN_DEV }}
+        run: |
+          if [ -z "${ROLE_ARN}" ]; then
+            echo "Set AWS_ROLE_ARN_DEV for PR plans targeting dev."
+            exit 1
+          fi
+          echo "TF_ENV=dev" >> "$GITHUB_ENV"
+          echo "TF_VAR_environment=dev" >> "$GITHUB_ENV"
+          echo "TF_VAR_account_key=" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_TO_ASSUME=${ROLE_ARN}" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Refuse local state files in workspace
+        run: |
+          shopt -s nullglob
+          files=( *.tfstate* )
+          if [ ${#files[@]} -gt 0 ]; then
+            echo "terraform.tfstate* must not be present; state must stay in GCS only."
+            ls -la "${files[@]}"
+            exit 1
+          fi
+
+      - name: Require GCS state bucket
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_DEV || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          if [ -z "${GCP_TF_STATE_BUCKET}" ]; then
+            echo "Set GCP_TF_STATE_BUCKET_DEV (or GCP_TF_STATE_BUCKET)."
+            exit 1
+          fi
+
+      - name: Terraform Format (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_DEV || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="prefix=terraform/aws/${TF_ENV}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: Show plan
+        run: terraform show -no-color tfplan.binary
+
+      - name: Confirm no local state was written
+        run: test ! -f terraform.tfstate && test ! -f terraform.tfstate.backup
+
+  prepare-prod:
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load prod account matrix
+        id: set-matrix
+        run: |
+          echo "matrix<<MATRIX_EOF" >> "$GITHUB_OUTPUT"
+          jq -c . aws/config/prod-accounts.json >> "$GITHUB_OUTPUT"
+          echo "MATRIX_EOF" >> "$GITHUB_OUTPUT"
+
+  plan-prod:
+    needs: prepare-prod
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-prod.outputs.matrix) }}
+    concurrency:
+      group: terraform-aws-pr-prod-${{ github.repository }}-${{ github.head_ref }}-${{ matrix.key }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: aws/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Context (prod / ${{ matrix.key }})
+        run: |
+          echo "TF_ENV=prod" >> "$GITHUB_ENV"
+          echo "TF_VAR_environment=prod" >> "$GITHUB_ENV"
+          echo "TF_VAR_account_key=${{ matrix.key }}" >> "$GITHUB_ENV"
+          echo "STATE_PREFIX=terraform/aws/prod/${{ matrix.key }}" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_TO_ASSUME=${{ matrix.role_arn }}" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Refuse local state files in workspace
+        run: |
+          shopt -s nullglob
+          files=( *.tfstate* )
+          if [ ${#files[@]} -gt 0 ]; then
+            echo "terraform.tfstate* must not be present; state must stay in GCS only."
+            ls -la "${files[@]}"
+            exit 1
+          fi
+
+      - name: Require GCS state bucket
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          if [ -z "${GCP_TF_STATE_BUCKET}" ]; then
+            echo "Set GCP_TF_STATE_BUCKET_PROD (or GCP_TF_STATE_BUCKET)."
+            exit 1
+          fi
+
+      - name: Terraform Format (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="prefix=${STATE_PREFIX}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: Show plan (${{ matrix.key }})
+        run: terraform show -no-color tfplan.binary
+
+      - name: Confirm no local state was written
+        run: test ! -f terraform.tfstate && test ! -f terraform.tfstate.backup

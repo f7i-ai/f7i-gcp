@@ -1,0 +1,116 @@
+# Push to `main` → one Terraform apply per entry in aws/config/prod-accounts.json (parallel matrix).
+# Each row uses its own IAM role (GitHub OIDC trust: repo + ref:refs/heads/main) and GCS prefix
+#   terraform/aws/prod/<key>/
+#
+# Edit aws/config/prod-accounts.json: map stable `key` → `role_arn` in each prod account.
+# Add/remove accounts by editing the JSON (same pattern as multi-account CDK waves).
+#
+# GCS state: GCP_TF_STATE_BUCKET_PROD (or GCP_TF_STATE_BUCKET) — typically the prod-org bucket, not the dev bucket.
+
+name: Terraform AWS (prod apply)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "aws/terraform/**"
+      - "aws/config/prod-accounts.json"
+      - ".github/workflows/terraform-aws-prod-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load prod account matrix
+        id: set-matrix
+        run: |
+          echo "matrix<<MATRIX_EOF" >> "$GITHUB_OUTPUT"
+          jq -c . aws/config/prod-accounts.json >> "$GITHUB_OUTPUT"
+          echo "MATRIX_EOF" >> "$GITHUB_OUTPUT"
+
+  apply:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    environment: terraform-aws-apply-prod-${{ matrix.key }}
+    concurrency:
+      group: terraform-aws-prod-${{ matrix.key }}-${{ github.repository }}
+      cancel-in-progress: false
+
+    defaults:
+      run:
+        working-directory: aws/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Terraform context (prod / ${{ matrix.key }})
+        run: |
+          echo "TF_ENV=prod" >> "$GITHUB_ENV"
+          echo "TF_VAR_environment=prod" >> "$GITHUB_ENV"
+          echo "TF_VAR_account_key=${{ matrix.key }}" >> "$GITHUB_ENV"
+          echo "STATE_PREFIX=terraform/aws/prod/${{ matrix.key }}" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_TO_ASSUME=${{ matrix.role_arn }}" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Refuse local state files in workspace
+        run: |
+          shopt -s nullglob
+          files=( *.tfstate* )
+          if [ ${#files[@]} -gt 0 ]; then
+            echo "terraform.tfstate* must not be present; state must stay in GCS only."
+            ls -la "${files[@]}"
+            exit 1
+          fi
+
+      - name: Require GCS state bucket
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          if [ -z "${GCP_TF_STATE_BUCKET}" ]; then
+            echo "Set GCP_TF_STATE_BUCKET_PROD (or GCP_TF_STATE_BUCKET)."
+            exit 1
+          fi
+
+      - name: Terraform Init
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET_PROD || vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="prefix=${STATE_PREFIX}"
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve -no-color
+
+      - name: Confirm no local state was written
+        run: |
+          if [ -f terraform.tfstate ] || [ -f terraform.tfstate.backup ]; then
+            echo "Local state file present after apply; GCS backend must be used exclusively."
+            exit 1
+          fi

@@ -1,0 +1,4 @@
+# Copy to backend.hcl (gitignored). Uses GCS for state; use Google ADC locally (e.g. gcloud auth application-default login).
+# CI: dev uses GCP_TF_STATE_BUCKET_DEV; prod matrix uses GCP_TF_STATE_BUCKET_PROD (or fallbacks).
+bucket = "anomaly-detection-dev-496103-terraform-state"
+prefix = "terraform/aws/dev"

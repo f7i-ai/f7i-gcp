@@ -1,8 +1,7 @@
-# Copy to backend.hcl and adjust prefix when working locally (dev vs prod stack).
+# Copy to backend.hcl (gitignored). Match CI: dev bucket + project are separate from prod.
 #   cp backend.hcl.example backend.hcl
 #   terraform init -reconfigure -backend-config=backend.hcl
 #
-# Bucket must exist in GCP before first init (see repository docs / gcloud).
-
-bucket = "anomaly-detection-496003-terraform-state"
-prefix = "terraform/state/dev"
+# Dev resources + state bucket project: anomaly-detection-dev-496103
+bucket = "anomaly-detection-dev-496103-terraform-state"
+prefix = "terraform/gcp/dev"
