@@ -37,3 +37,8 @@ output "bridge_eventbridge_bus" {
   description = "EventBridge bus name."
   value       = aws_cloudwatch_event_bus.bridge.name
 }
+
+output "github_terraform_role_arn" {
+  description = "GitHub Actions OIDC role for Terraform CI (managed when environment=dev)."
+  value       = try(aws_iam_role.github_terraform[0].arn, null)
+}

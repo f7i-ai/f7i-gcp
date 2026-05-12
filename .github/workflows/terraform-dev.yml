@@ -19,13 +19,54 @@ permissions:
   id-token: write
 
 jobs:
+  # No `environment` here — OIDC sub is repo:...:ref:refs/heads/dev, which matches the
+  # legacy trust policy. This job updates the role to also allow GitHub Environment subs.
+  ci-role-trust:
+    name: Sync GitHub OIDC trust (branch token)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
+
+      - run: terraform init -input=false -reconfigure -backend-config="$GITHUB_WORKSPACE/terraform/env/gcp-dev.backend.hcl"
+
+      - name: Import GitHub Actions CI role if missing from state
+        run: |
+          set -e
+          if ! terraform state show 'aws_iam_role.github_terraform[0]' >/dev/null 2>&1; then
+            terraform import -input=false -var-file="$GITHUB_WORKSPACE/terraform/env/dev.tfvars" \
+              'aws_iam_role.github_terraform[0]' f7i-gcp-github-terraform
+          fi
+
+      - name: Apply CI role trust only
+        run: |
+          terraform apply -input=false -auto-approve -no-color -var-file="$GITHUB_WORKSPACE/terraform/env/dev.tfvars" \
+            -target='aws_iam_role.github_terraform[0]'
+
   apply:
+    name: Terraform apply (dev)
+    needs: ci-role-trust
     runs-on: ubuntu-latest
     environment: terraform-apply-dev
     defaults:
       run:
         working-directory: terraform
-
     steps:
       - uses: actions/checkout@v4
 
