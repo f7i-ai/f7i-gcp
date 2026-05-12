@@ -99,11 +99,13 @@ resource "google_cloudfunctions2_function" "aws_bridge" {
   depends_on = [google_project_service.core_apis]
 }
 
-# Allow unauthenticated HTTP invocations (test only — lock down for prod)
-resource "google_cloud_run_v2_service_iam_member" "aws_bridge_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloudfunctions2_function.aws_bridge.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
+# Allow unauthenticated HTTP invocations (test only — lock down for prod).
+# Use Cloud Functions IAM API so CI SA needs cloudfunctions.functions.setIamPolicy,
+# not run.services.setIamPolicy (Gen2 is Cloud Run under the hood; Run IAM is often tighter).
+resource "google_cloudfunctions2_function_iam_member" "aws_bridge_invoker" {
+  project        = var.project_id
+  location       = var.region
+  cloud_function = google_cloudfunctions2_function.aws_bridge.name
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
 }
