@@ -4,7 +4,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Default region for regional resources."
+  description = "Default GCP region for regional resources."
   type        = string
   default     = "australia-southeast1"
 }
@@ -21,24 +21,13 @@ variable "environment" {
 }
 
 variable "aws_region" {
-  description = "AWS region the bridge function targets."
+  description = "AWS region for the bridge resources and provider."
   type        = string
   default     = "ap-southeast-2"
 }
 
-variable "aws_bridge_role_arn" {
-  description = "ARN of the AWS IAM role the function assumes via OIDC (output from aws/terraform)."
+variable "gcp_bridge_sa_id" {
+  description = "Numeric unique ID of the GCP Service Account for the aws-bridge function. Used in the AWS OIDC trust condition. Leave empty on first apply — fill in after apply creates the SA."
   type        = string
+  default     = ""
 }
-
-variable "aws_bridge_s3_bucket" {
-  description = "Name of the S3 bucket the function uploads to (output from aws/terraform)."
-  type        = string
-}
-
-variable "aws_bridge_eventbridge_bus" {
-  description = "Name of the EventBridge bus the function publishes to (output from aws/terraform)."
-  type        = string
-  default     = "default"
-}
-

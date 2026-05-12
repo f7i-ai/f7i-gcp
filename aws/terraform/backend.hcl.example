@@ -1,3 +1,0 @@
-# Copy to backend.hcl (gitignored). Match aws/terraform/env/aws-dev.backend.hcl for dev bucket/prefix.
-bucket = "anomaly-detection-dev-496103-terraform-state"
-prefix = "terraform/aws/dev"

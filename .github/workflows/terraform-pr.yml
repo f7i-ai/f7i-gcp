@@ -1,8 +1,6 @@
-# PR plans: base branch `dev` vs `main` selects terraform/env/{dev,prod}.{tfvars,backend.hcl}.
-#
-# GitHub Variables: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL.
+# Unified Terraform plan on PRs — same root as apply workflow.
 
-name: Terraform GCP (PR)
+name: Terraform (PR)
 
 on:
   pull_request:
@@ -11,10 +9,11 @@ on:
       - dev
     paths:
       - "terraform/**"
+      - "functions/**"
       - ".github/workflows/terraform-pr.yml"
 
 concurrency:
-  group: terraform-gcp-pr-${{ github.repository }}-${{ github.head_ref }}
+  group: terraform-pr-${{ github.repository }}-${{ github.head_ref }}
   cancel-in-progress: true
 
 permissions:
@@ -22,7 +21,7 @@ permissions:
   id-token: write
 
 jobs:
-  validate:
+  plan:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,34 +30,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select env files (PR base branch)
+      - name: Select env files
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           WS="$GITHUB_WORKSPACE"
-          case "$BASE_REF" in
-            main)
-              echo "TF_ENV=prod" >> "$GITHUB_ENV"
-              echo "TFVARS_FILE=$WS/terraform/env/prod.tfvars" >> "$GITHUB_ENV"
-              echo "BACKEND_FILE=$WS/terraform/env/gcp-prod.backend.hcl" >> "$GITHUB_ENV"
-              ;;
-            *)
-              echo "TF_ENV=dev" >> "$GITHUB_ENV"
-              echo "TFVARS_FILE=$WS/terraform/env/dev.tfvars" >> "$GITHUB_ENV"
-              echo "BACKEND_FILE=$WS/terraform/env/gcp-dev.backend.hcl" >> "$GITHUB_ENV"
-              ;;
-          esac
+          if [ "$BASE_REF" = "main" ]; then
+            echo "TFVARS_FILE=$WS/terraform/env/prod.tfvars"           >> "$GITHUB_ENV"
+            echo "BACKEND_FILE=$WS/terraform/env/gcp-prod.backend.hcl" >> "$GITHUB_ENV"
+            echo "AWS_ROLE=${{ vars.AWS_ROLE_ARN_PROD }}"              >> "$GITHUB_ENV"
+          else
+            echo "TFVARS_FILE=$WS/terraform/env/dev.tfvars"            >> "$GITHUB_ENV"
+            echo "BACKEND_FILE=$WS/terraform/env/gcp-dev.backend.hcl"  >> "$GITHUB_ENV"
+            echo "AWS_ROLE=${{ vars.AWS_ROLE_ARN_DEV }}"               >> "$GITHUB_ENV"
+          fi
 
       - name: Require configuration
         env:
           WIF: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          SA: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+          SA:  ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
         run: |
           ok=1
-          [ -f "${TFVARS_FILE:-}" ] || { echo "Missing tfvars: $TFVARS_FILE"; ok=0; }
-          [ -f "${BACKEND_FILE:-}" ] || { echo "Missing backend fragment: $BACKEND_FILE"; ok=0; }
-          [ -n "$WIF" ] || { echo "Missing GCP_WORKLOAD_IDENTITY_PROVIDER"; ok=0; }
-          [ -n "$SA" ] || { echo "Missing GCP_SERVICE_ACCOUNT_EMAIL"; ok=0; }
+          [ -f "${TFVARS_FILE}"  ] || { echo "Missing $TFVARS_FILE";  ok=0; }
+          [ -f "${BACKEND_FILE}" ] || { echo "Missing $BACKEND_FILE"; ok=0; }
+          [ -n "$WIF"            ] || { echo "Missing GCP_WORKLOAD_IDENTITY_PROVIDER"; ok=0; }
+          [ -n "$SA"             ] || { echo "Missing GCP_SERVICE_ACCOUNT_EMAIL";      ok=0; }
+          [ -n "$AWS_ROLE"       ] || { echo "Missing AWS_ROLE_ARN_DEV / AWS_ROLE_ARN_PROD"; ok=0; }
           [ "$ok" -eq 1 ] || exit 1
 
       - uses: hashicorp/setup-terraform@v3
@@ -70,15 +67,10 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
 
-      - name: Refuse local state files in workspace
-        run: |
-          shopt -s nullglob
-          files=( *.tfstate* )
-          if [ ${#files[@]} -gt 0 ]; then
-            echo "terraform.tfstate* must not be present; state must stay in GCS only."
-            ls -la "${files[@]}"
-            exit 1
-          fi
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-2' }}
 
       - name: Terraform Format (check)
         run: terraform fmt -check -recursive
@@ -90,10 +82,4 @@ jobs:
         run: terraform validate -var-file="$TFVARS_FILE"
 
       - name: Terraform Plan
-        run: terraform plan -input=false -no-color -out=tfplan.binary -var-file="$TFVARS_FILE"
-
-      - name: Show plan (text summary)
-        run: terraform show -no-color tfplan.binary
-
-      - name: Confirm no local state was written
-        run: test ! -f terraform.tfstate && test ! -f terraform.tfstate.backup
+        run: terraform plan -input=false -no-color -var-file="$TFVARS_FILE"

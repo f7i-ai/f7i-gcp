@@ -88,9 +88,9 @@ resource "google_cloudfunctions2_function" "aws_bridge" {
     all_traffic_on_latest_revision = true
 
     environment_variables = {
-      AWS_ROLE_ARN        = var.aws_bridge_role_arn
-      AWS_S3_BUCKET       = var.aws_bridge_s3_bucket
-      AWS_EVENTBRIDGE_BUS = var.aws_bridge_eventbridge_bus
+      AWS_ROLE_ARN        = aws_iam_role.gcp_aws_bridge.arn
+      AWS_S3_BUCKET       = aws_s3_bucket.bridge.id
+      AWS_EVENTBRIDGE_BUS = aws_cloudwatch_event_bus.bridge.name
       AWS_REGION          = var.aws_region
     }
   }
