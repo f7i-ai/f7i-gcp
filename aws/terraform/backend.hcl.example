@@ -1,4 +1,3 @@
-# Copy to backend.hcl (gitignored). Uses GCS for state; use Google ADC locally (e.g. gcloud auth application-default login).
-# Bucket/prefix for dev match config/terraform-environments.yaml → environments.dev.gcp (and aws state layout under prefix).
+# Copy to backend.hcl (gitignored). Match aws/terraform/env/aws-dev.backend.hcl for dev bucket/prefix.
 bucket = "anomaly-detection-dev-496103-terraform-state"
 prefix = "terraform/aws/dev"

@@ -1,5 +1,5 @@
-# Copy to terraform.tfvars for local runs. CI reads config/terraform-environments.yaml (see scripts/ci/terraform-from-config.rb).
-# Values below match environments.dev in that file.
+# Copy to terraform.tfvars or use: terraform plan -var-file=env/dev.tfvars
+# Local backend: point backend.hcl at terraform/env/gcp-dev.backend.hcl values (bucket + prefix).
 project_id    = "anomaly-detection-dev-496103"
 region        = "australia-southeast1"
 environment   = "dev"

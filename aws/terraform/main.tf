@@ -1,3 +1,6 @@
+# AWS Terraform stack (dormant): GitHub Actions for AWS are disabled (workflow_dispatch only).
+# Re-enable triggers in .github/workflows/terraform-aws-*.yml when ready.
+#
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 

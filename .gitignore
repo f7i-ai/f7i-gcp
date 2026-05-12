@@ -15,6 +15,7 @@ override.tf.json
 *_override.tf.json
 *.tfvars
 !*.tfvars.example
+!terraform/env/*.tfvars
 .terraformrc
 terraform.rc
 .DS_Store

@@ -15,7 +15,7 @@ variable "environment" {
 }
 
 variable "account_key" {
-  description = "Stable slug for this prod AWS account (config/terraform-environments.yaml → aws.prod_terraform_matrix key). Empty for dev."
+  description = "Stable slug for this prod AWS account (aws/config/prod-accounts.json). Empty for dev."
   type        = string
   default     = ""
 }

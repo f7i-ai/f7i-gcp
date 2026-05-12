@@ -1,46 +1,38 @@
 # ============================================================================
 # TEMPORARILY DISABLED (auto-triggers) — validate GCP first. Uncomment `push` under `on:` to re-enable.
 # ============================================================================
-# Runs when `dev` is updated (including after a PR is merged into `dev`): apply Terraform to the
-# AWS **dev** account using environment `dev`. Optional manual run: Actions → Terraform AWS (dev apply).
+# Runs on `dev`: apply AWS Terraform using aws/terraform/env/aws-dev.backend.hcl + GitHub variable
+# AWS_ROLE_ARN_DEV (full ARN to the dev role below).
 #
-# --- Connect GitHub → AWS dev account (OIDC; no static keys) ---
-# 1) IAM → Identity providers: add `https://token.actions.githubusercontent.com` if missing
-#    (audience: `sts.amazonaws.com`).
-# 2) IAM role trust policy (example; set DEV_ACCOUNT_ID; repo is f7i-ai/f7i-gcp):
-#    {
-#      "Effect": "Allow",
-#      "Principal": { "Federated": "arn:aws:iam::DEV_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com" },
-#      "Action": "sts:AssumeRoleWithWebIdentity",
-#      "Condition": {
-#        "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-#        "StringLike": { "token.actions.githubusercontent.com:sub": "repo:f7i-ai/f7i-gcp:ref:refs/heads/dev" }
-#      }
-#    }
-# 3) Attach IAM policy allowing what this Terraform stack needs (iterate from least privilege).
-# 4) `environments.dev.aws.role_arn` in config/terraform-environments.yaml, or GitHub variable AWS_ROLE_ARN_DEV
+# --- GitHub → AWS (OIDC) for the DEV account ---
+# IAM OIDC provider (once per account): token.actions.githubusercontent.com, aud = sts.amazonaws.com
+# IAM role trust (example; tighten sub to your repo only):
+#   "Federated": "arn:aws:iam::DEV_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+#   "Action": "sts:AssumeRoleWithWebIdentity"
+#   "Condition": {
+#     "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+#     "StringLike": {
+#       "token.actions.githubusercontent.com:sub": "repo:f7i-ai/f7i-gcp:*"
+#     }
+#   }
+# For least privilege, replace StringLike with ForAnyValue:StringLike and list only the subs you need, e.g.:
+#   repo:f7i-ai/f7i-gcp:ref:refs/heads/dev
+#   repo:f7i-ai/f7i-gcp:pull_request
+# (PR plans use :pull_request in `sub`, not :ref:refs/heads/dev — both are needed if you run PR + push.)
 #
-# --- State in GCS ---
-# Dev state bucket: `config/terraform-environments.yaml` → environments.dev.gcp.state_bucket (by git branch).
-# Identity: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL
-#
-# GitHub Environment `terraform-apply-dev` (shared with GCP dev apply; optional protection rules).
-#
-# Prod: push to `main` runs `.github/workflows/terraform-aws-prod-deploy.yml` (matrix from
-# `config/terraform-environments.yaml` → aws.prod_terraform_matrix).
+# GCS state: GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL (same as GCP Terraform).
+# Prod: terraform-aws-prod-deploy.yml + aws/config/prod-accounts.json
 
 name: Terraform AWS (dev apply)
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - dev
-  #   paths:
-  #     - "aws/terraform/**"
-  #     - "config/**"
-  #     - "scripts/ci/terraform-from-config.rb"
-  #     - ".github/workflows/terraform-aws-deploy.yml"
+  push:
+    branches:
+      - dev
+    paths:
+      - "aws/terraform/**"
+      - ".github/workflows/terraform-aws-deploy.yml"
 
 concurrency:
   group: terraform-aws-apply-dev-${{ github.repository }}
@@ -61,17 +53,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve AWS dev role and GCS state bucket (from config)
+      - name: AWS dev context
         env:
-          AWS_ROLE_ARN_DEV: ${{ vars.AWS_ROLE_ARN_DEV }}
-          REF_NAME: ${{ github.ref_name }}
+          ROLE_ARN: ${{ vars.AWS_ROLE_ARN_DEV }}
         run: |
+          if [ -z "${ROLE_ARN}" ]; then
+            echo "Set repository variable AWS_ROLE_ARN_DEV (GitHub OIDC role on branch dev)."
+            exit 1
+          fi
           echo "TF_ENV=dev" >> "$GITHUB_ENV"
           echo "TF_VAR_environment=dev" >> "$GITHUB_ENV"
-          R="$(ruby "$GITHUB_WORKSPACE/scripts/ci/terraform-from-config.rb" aws-dev-role)"
-          echo "AWS_ROLE_TO_ASSUME=${R}" >> "$GITHUB_ENV"
-          B="$(ruby "$GITHUB_WORKSPACE/scripts/ci/terraform-from-config.rb" gcp-state-bucket "$REF_NAME")"
-          echo "GCP_TF_STATE_BUCKET=${B}" >> "$GITHUB_ENV"
+          echo "AWS_ROLE_TO_ASSUME=${ROLE_ARN}" >> "$GITHUB_ENV"
+          echo "BACKEND_FILE=$GITHUB_WORKSPACE/aws/terraform/env/aws-dev.backend.hcl" >> "$GITHUB_ENV"
 
       - uses: google-github-actions/auth@v2
         with:
@@ -97,18 +90,15 @@ jobs:
             exit 1
           fi
 
-      - name: Require GCS state bucket
+      - name: Require backend fragment
         run: |
-          if [ -z "${GCP_TF_STATE_BUCKET:-}" ]; then
-            echo "Missing dev state bucket in config/terraform-environments.yaml (environments.dev.gcp.state_bucket)."
+          if [ ! -f "${BACKEND_FILE}" ]; then
+            echo "Missing $BACKEND_FILE"
             exit 1
           fi
 
       - name: Terraform Init
-        run: |
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
-            -backend-config="prefix=terraform/aws/${TF_ENV}"
+        run: terraform init -input=false -reconfigure -backend-config="$BACKEND_FILE"
 
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve -no-color

@@ -1,14 +1,28 @@
 # ============================================================================
 # TEMPORARILY DISABLED (auto-triggers) — validate GCP first. Uncomment `push` under `on:` to re-enable.
 # ============================================================================
-# Push to `main` → one Terraform apply per entry in config/terraform-environments.yaml `aws.prod_terraform_matrix` (parallel matrix).
-# Each row uses its own IAM role (GitHub OIDC trust: repo:f7i-ai/f7i-gcp:ref:refs/heads/main) and GCS prefix
-#   terraform/aws/prod/<key>/
+# Push to `main` → matrix from aws/config/prod-accounts.json (one IAM role ARN per AWS account).
 #
-# Edit the YAML matrix: stable `key` → `role_arn` in each prod account.
+# In EACH prod account create the same role name (e.g. f7i-gcp-github-terraform) so ARNs only differ
+# by account ID — see role_arn in aws/config/prod-accounts.json.
 #
-# GCS state: prod bucket from `config/terraform-environments.yaml` (environments.prod.gcp.state_bucket) via init step.
-# GitHub variables: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL (GCS access).
+# --- GitHub → AWS (OIDC) per prod account ---
+# Trust (example; use your real account IDs and repo slug f7i-ai/f7i-gcp):
+#   "Federated": "arn:aws:iam::THIS_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+#   "Action": "sts:AssumeRoleWithWebIdentity"
+#   "Condition": {
+#     "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+#     "ForAnyValue:StringLike": {
+#       "token.actions.githubusercontent.com:sub": [
+#         "repo:f7i-ai/f7i-gcp:ref:refs/heads/main",
+#         "repo:f7i-ai/f7i-gcp:pull_request"
+#       ]
+#     }
+#   }
+# Include :pull_request if terraform-aws-pr.yml plans against base `main`; omit if you only push to main.
+# Optionally narrow further (environment claim) if you use GitHub Environments + attribute conditions in IAM.
+#
+# GCS: aws/terraform/env/aws-prod.bucket.hcl + prefix terraform/aws/prod/<matrix.key>/
 
 name: Terraform AWS (prod apply)
 
@@ -19,8 +33,7 @@ on:
   #     - main
   #   paths:
   #     - "aws/terraform/**"
-  #     - "config/**"
-  #     - "scripts/ci/terraform-from-config.rb"
+  #     - "aws/config/prod-accounts.json"
   #     - ".github/workflows/terraform-aws-prod-deploy.yml"
 
 permissions:
@@ -39,7 +52,7 @@ jobs:
         id: set-matrix
         run: |
           echo "matrix<<MATRIX_EOF" >> "$GITHUB_OUTPUT"
-          ruby "$GITHUB_WORKSPACE/scripts/ci/terraform-from-config.rb" aws-prod-matrix >> "$GITHUB_OUTPUT"
+          jq -c . aws/config/prod-accounts.json >> "$GITHUB_OUTPUT"
           echo "MATRIX_EOF" >> "$GITHUB_OUTPUT"
 
   apply:
@@ -67,11 +80,7 @@ jobs:
           echo "TF_VAR_account_key=${{ matrix.key }}" >> "$GITHUB_ENV"
           echo "STATE_PREFIX=terraform/aws/prod/${{ matrix.key }}" >> "$GITHUB_ENV"
           echo "AWS_ROLE_TO_ASSUME=${{ matrix.role_arn }}" >> "$GITHUB_ENV"
-
-      - name: GCS state bucket (from config)
-        run: |
-          B="$(ruby "$GITHUB_WORKSPACE/scripts/ci/terraform-from-config.rb" gcp-state-bucket main)"
-          echo "GCP_TF_STATE_BUCKET=${B}" >> "$GITHUB_ENV"
+          echo "BUCKET_FILE=$GITHUB_WORKSPACE/aws/terraform/env/aws-prod.bucket.hcl" >> "$GITHUB_ENV"
 
       - uses: google-github-actions/auth@v2
         with:
@@ -97,17 +106,17 @@ jobs:
             exit 1
           fi
 
-      - name: Require GCS state bucket
+      - name: Require GCS backend fragment
         run: |
-          if [ -z "${GCP_TF_STATE_BUCKET:-}" ]; then
-            echo "Missing prod state bucket in config/terraform-environments.yaml (environments.prod.gcp.state_bucket)."
+          if [ ! -f "$BUCKET_FILE" ]; then
+            echo "Missing $BUCKET_FILE"
             exit 1
           fi
 
       - name: Terraform Init
         run: |
           terraform init -input=false -reconfigure \
-            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="$BUCKET_FILE" \
             -backend-config="prefix=${STATE_PREFIX}"
 
       - name: Terraform Apply

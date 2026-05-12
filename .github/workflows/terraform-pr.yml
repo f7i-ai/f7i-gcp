@@ -1,7 +1,6 @@
-# Plans on PRs targeting `dev` or `main` with the matching GCP project and state prefix from
-# `config/terraform-environments.yaml` (`scripts/ci/terraform-from-config.rb gcp-resolve <base_ref>`).
+# PR plans: base branch `dev` vs `main` selects terraform/env/{dev,prod}.{tfvars,backend.hcl}.
 #
-# GitHub Variables: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL. Repo: f7i-ai/f7i-gcp.
+# GitHub Variables: GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT_EMAIL.
 
 name: Terraform GCP (PR)
 
@@ -12,8 +11,6 @@ on:
       - dev
     paths:
       - "terraform/**"
-      - "config/**"
-      - "scripts/ci/terraform-from-config.rb"
       - ".github/workflows/terraform-pr.yml"
 
 concurrency:
@@ -34,10 +31,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve GCP targets from config
+      - name: Select env files (PR base branch)
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: ruby "$GITHUB_WORKSPACE/scripts/ci/terraform-from-config.rb" gcp-resolve "$BASE_REF"
+        run: |
+          WS="$GITHUB_WORKSPACE"
+          case "$BASE_REF" in
+            main)
+              echo "TF_ENV=prod" >> "$GITHUB_ENV"
+              echo "TFVARS_FILE=$WS/terraform/env/prod.tfvars" >> "$GITHUB_ENV"
+              echo "BACKEND_FILE=$WS/terraform/env/gcp-prod.backend.hcl" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "TF_ENV=dev" >> "$GITHUB_ENV"
+              echo "TFVARS_FILE=$WS/terraform/env/dev.tfvars" >> "$GITHUB_ENV"
+              echo "BACKEND_FILE=$WS/terraform/env/gcp-dev.backend.hcl" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - name: Require configuration
         env:
@@ -45,8 +55,8 @@ jobs:
           SA: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
         run: |
           ok=1
-          [ -n "${GCP_TF_STATE_BUCKET:-}" ] || { echo "Missing state bucket (config/terraform-environments.yaml → gcp.state_bucket)"; ok=0; }
-          [ -n "${TF_VAR_project_id:-}" ] || { echo "Missing project_id (config/terraform-environments.yaml → gcp.project_id)"; ok=0; }
+          [ -f "${TFVARS_FILE:-}" ] || { echo "Missing tfvars: $TFVARS_FILE"; ok=0; }
+          [ -f "${BACKEND_FILE:-}" ] || { echo "Missing backend fragment: $BACKEND_FILE"; ok=0; }
           [ -n "$WIF" ] || { echo "Missing GCP_WORKLOAD_IDENTITY_PROVIDER"; ok=0; }
           [ -n "$SA" ] || { echo "Missing GCP_SERVICE_ACCOUNT_EMAIL"; ok=0; }
           [ "$ok" -eq 1 ] || exit 1
@@ -74,18 +84,13 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform Init
-        env:
-          GCP_TF_STATE_BUCKET: ${{ env.GCP_TF_STATE_BUCKET }}
-        run: |
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
-            -backend-config="prefix=terraform/gcp/${TF_ENV}"
+        run: terraform init -input=false -reconfigure -backend-config="$BACKEND_FILE"
 
       - name: Terraform Validate
-        run: terraform validate
+        run: terraform validate -var-file="$TFVARS_FILE"
 
       - name: Terraform Plan
-        run: terraform plan -input=false -no-color -out=tfplan.binary
+        run: terraform plan -input=false -no-color -out=tfplan.binary -var-file="$TFVARS_FILE"
 
       - name: Show plan (text summary)
         run: terraform show -no-color tfplan.binary
