@@ -23,17 +23,44 @@ import os
 
 import boto3
 import functions_framework
-import google.auth.transport.requests
-import google.oauth2.id_token
 
 
 # ── OIDC helpers ──────────────────────────────────────────────────────────────
 
 def _get_google_oidc_token() -> str:
-    """Return a Google-signed OIDC token for this runtime's service account."""
+    """Return a Google-signed OIDC token with aud=sts.amazonaws.com for AWS STS.
+
+    fetch_id_token() via the metadata server can yield an audience AWS rejects
+    (InvalidIdentityToken / Incorrect token audience). generateIdToken always
+    sets aud to the value we pass.
+    """
+    import google.auth
+    import google.auth.transport.requests
+    import requests
+
     audience = "sts.amazonaws.com"
     auth_req = google.auth.transport.requests.Request()
-    return google.oauth2.id_token.fetch_id_token(auth_req, audience)
+    creds, _ = google.auth.default()
+    creds.refresh(auth_req)
+    access_token = creds.token
+
+    sa_email = getattr(creds, "service_account_email", None)
+    if not sa_email:
+        raise RuntimeError("Expected GCP service account credentials (missing service_account_email)")
+
+    url = f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa_email}:generateIdToken"
+    r = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        json={"audience": audience, "includeEmail": True},
+        timeout=60,
+    )
+    if not r.ok:
+        raise RuntimeError(f"generateIdToken HTTP {r.status_code}: {r.text[:800]}")
+    return r.json()["token"]
 
 
 def _assume_aws_role(role_arn: str, region: str) -> dict:

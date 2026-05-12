@@ -18,6 +18,7 @@ resource "google_project_service" "core_apis" {
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",
+    "iamcredentials.googleapis.com",
   ])
 
   project            = var.project_id
@@ -32,6 +33,13 @@ resource "google_service_account" "aws_bridge_fn" {
   account_id   = "aws-bridge-fn-${var.environment}"
   display_name = "AWS Bridge Cloud Function (${var.environment})"
   description  = "Runs the aws-bridge Cloud Function; assumes AWS role via OIDC to write S3 + EventBridge."
+}
+
+# Lets the function SA call iamcredentials.googleapis.com generateIdToken on itself with audience sts.amazonaws.com.
+resource "google_service_account_iam_member" "aws_bridge_fn_token_creator_self" {
+  service_account_id = google_service_account.aws_bridge_fn.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.aws_bridge_fn.email}"
 }
 
 # ── Source bucket (Cloud Functions Gen2 uploads zip here) ─────────────────────
