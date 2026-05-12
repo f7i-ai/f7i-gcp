@@ -8,4 +8,5 @@ resource "terraform_data" "ci_bootstrap" {
     account_key   = var.account_key
     purpose       = "f7i-gcp-aws-bootstrap"
   }
+  
 }
