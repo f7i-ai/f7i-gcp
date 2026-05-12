@@ -35,8 +35,11 @@ resource "google_service_account" "aws_bridge_fn" {
   description  = "Runs the aws-bridge Cloud Function; assumes AWS role via OIDC to write S3 + EventBridge."
 }
 
-# Lets the function SA call iamcredentials.googleapis.com generateIdToken on itself with audience sts.amazonaws.com.
+# Optional: lets the function SA call generateIdToken(audience=sts.amazonaws.com) on itself.
+# OFF by default — narrow CI SAs often lack iam.serviceAccounts.setIamPolicy on this SA.
 resource "google_service_account_iam_member" "aws_bridge_fn_token_creator_self" {
+  count = var.manage_aws_bridge_sa_token_creator_self ? 1 : 0
+
   service_account_id = google_service_account.aws_bridge_fn.name
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = "serviceAccount:${google_service_account.aws_bridge_fn.email}"

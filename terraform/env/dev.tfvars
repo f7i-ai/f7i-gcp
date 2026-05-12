@@ -7,6 +7,9 @@ environment = "dev"
 # If false, run once as a project owner: see output public_invoker_hint after apply.
 manage_cloud_function_public_invoker = false
 
+# Same pattern: CI often cannot setIamPolicy on the function SA; run service_account_token_creator_hint once.
+manage_aws_bridge_sa_token_creator_self = false
+
 # After first apply, get the SA numeric ID and uncomment:
 # gcp_bridge_sa_id = "123456789012345678901"
 # Run: gcloud iam service-accounts describe \

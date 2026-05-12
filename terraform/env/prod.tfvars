@@ -3,4 +3,5 @@ project_id  = "anomaly-detection-496003"
 region      = "australia-southeast1"
 environment = "prod"
 
-manage_cloud_function_public_invoker = false
+manage_cloud_function_public_invoker     = false
+manage_aws_bridge_sa_token_creator_self  = false

@@ -47,3 +47,8 @@ output "public_invoker_hint" {
   description = "Shell snippet to allow unauthenticated HTTPS calls when manage_cloud_function_public_invoker is false."
   value       = var.manage_cloud_function_public_invoker ? null : "gcloud functions add-invoker-policy-binding ${google_cloudfunctions2_function.aws_bridge.name} --project=${var.project_id} --region=${var.region} --member=allUsers"
 }
+
+output "service_account_token_creator_hint" {
+  description = "Grants the function SA Token Creator on itself so generateIdToken for AWS works when manage_aws_bridge_sa_token_creator_self is false."
+  value       = var.manage_aws_bridge_sa_token_creator_self ? null : "gcloud iam service-accounts add-iam-policy-binding ${google_service_account.aws_bridge_fn.email} --project=${var.project_id} --member=serviceAccount:${google_service_account.aws_bridge_fn.email} --role=roles/iam.serviceAccountTokenCreator"
+}
