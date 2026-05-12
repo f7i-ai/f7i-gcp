@@ -1,0 +1,84 @@
+# Requires GitHub → GCP Workload Identity Federation.
+# https://cloud.google.com/blog/products/identity-security/enabling-keyless-authentication-from-github-actions
+#
+# Repository variables (Settings → Secrets and variables → Actions → Variables):
+#   GCP_TF_STATE_BUCKET           — GCS bucket for Terraform state (same bucket; prefix separates envs)
+#   GCP_PROJECT_ID                — Fallback if dev/prod project vars are not set
+#   GCP_PROJECT_ID_DEV            — GCP project for dev (branch dev / PRs into dev); falls back to GCP_PROJECT_ID
+#   GCP_PROJECT_ID_PROD           — GCP project for prod (branch main / PRs into main); falls back to GCP_PROJECT_ID
+#   GCP_WORKLOAD_IDENTITY_PROVIDER
+#   GCP_SERVICE_ACCOUNT_EMAIL
+
+name: Terraform (PR)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-pr.yml"
+
+concurrency:
+  group: terraform-pr-${{ github.repository }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map branch target → Terraform environment
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PROJ_DEV: ${{ vars.GCP_PROJECT_ID_DEV || vars.GCP_PROJECT_ID }}
+          PROJ_PROD: ${{ vars.GCP_PROJECT_ID_PROD || vars.GCP_PROJECT_ID }}
+        run: |
+          if [ "$BASE_REF" = "main" ]; then
+            echo "TF_ENV=prod" >> "$GITHUB_ENV"
+            echo "TF_VAR_project_id=${PROJ_PROD}" >> "$GITHUB_ENV"
+            echo "TF_VAR_environment=prod" >> "$GITHUB_ENV"
+          else
+            echo "TF_ENV=dev" >> "$GITHUB_ENV"
+            echo "TF_VAR_project_id=${PROJ_DEV}" >> "$GITHUB_ENV"
+            echo "TF_VAR_environment=dev" >> "$GITHUB_ENV"
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Terraform Format (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="prefix=terraform/state/${TF_ENV}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -no-color -out=tfplan.binary
+
+      - name: Show plan (text summary)
+        run: terraform show -no-color tfplan.binary

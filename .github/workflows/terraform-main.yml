@@ -1,0 +1,73 @@
+# Pushes to `dev` → apply dev stack (project + state prefix dev).
+# Pushes to `main` → apply prod stack (project + state prefix prod).
+#
+# Use GitHub Environments to gate prod: create `terraform-apply-dev` and `terraform-apply-prod`
+# under Settings → Environments (optional reviewers on prod).
+#
+# Variables: same as terraform-pr.yml (GCP_TF_STATE_BUCKET, GCP_PROJECT_ID_DEV/PROD or GCP_PROJECT_ID, WIF, SA).
+
+name: Terraform (apply)
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-main.yml"
+
+concurrency:
+  group: terraform-apply-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'terraform-apply-prod' || 'terraform-apply-dev' }}
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map branch → Terraform environment
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          PROJ_DEV: ${{ vars.GCP_PROJECT_ID_DEV || vars.GCP_PROJECT_ID }}
+          PROJ_PROD: ${{ vars.GCP_PROJECT_ID_PROD || vars.GCP_PROJECT_ID }}
+        run: |
+          if [ "$REF_NAME" = "main" ]; then
+            echo "TF_ENV=prod" >> "$GITHUB_ENV"
+            echo "TF_VAR_project_id=${PROJ_PROD}" >> "$GITHUB_ENV"
+            echo "TF_VAR_environment=prod" >> "$GITHUB_ENV"
+          else
+            echo "TF_ENV=dev" >> "$GITHUB_ENV"
+            echo "TF_VAR_project_id=${PROJ_DEV}" >> "$GITHUB_ENV"
+            echo "TF_VAR_environment=dev" >> "$GITHUB_ENV"
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Terraform Init
+        env:
+          GCP_TF_STATE_BUCKET: ${{ vars.GCP_TF_STATE_BUCKET }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${GCP_TF_STATE_BUCKET}" \
+            -backend-config="prefix=terraform/state/${TF_ENV}"
+
+      - name: Terraform Apply
+        run: terraform apply -input=false -auto-approve -no-color

@@ -1,0 +1,8 @@
+# Copy to backend.hcl and adjust prefix when working locally (dev vs prod stack).
+#   cp backend.hcl.example backend.hcl
+#   terraform init -reconfigure -backend-config=backend.hcl
+#
+# Bucket must exist in GCP before first init (see repository docs / gcloud).
+
+bucket = "anomaly-detection-496003-terraform-state"
+prefix = "terraform/state/dev"
