@@ -19,3 +19,9 @@ variable "account_key" {
   type        = string
   default     = ""
 }
+
+variable "gcp_bridge_sa_id" {
+  description = "Numeric unique ID of the GCP Service Account for the aws-bridge function. Used in the OIDC trust condition. Leave empty on first apply — fill in after GCP apply creates the SA."
+  type        = string
+  default     = ""
+}

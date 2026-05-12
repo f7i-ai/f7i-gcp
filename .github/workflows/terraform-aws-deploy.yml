@@ -101,7 +101,7 @@ jobs:
         run: terraform init -input=false -reconfigure -backend-config="$BACKEND_FILE"
 
       - name: Terraform Apply
-        run: terraform apply -input=false -auto-approve -no-color
+        run: terraform apply -input=false -auto-approve -no-color -var-file="$GITHUB_WORKSPACE/aws/terraform/env/aws-dev.tfvars"
 
       - name: Confirm no local state was written
         run: |

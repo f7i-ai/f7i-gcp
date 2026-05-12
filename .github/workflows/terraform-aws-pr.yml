@@ -86,7 +86,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -input=false -no-color -out=tfplan.binary
+        run: terraform plan -input=false -no-color -out=tfplan.binary -var-file="$GITHUB_WORKSPACE/aws/terraform/env/aws-dev.tfvars"
 
       - name: Show plan
         run: terraform show -no-color tfplan.binary
