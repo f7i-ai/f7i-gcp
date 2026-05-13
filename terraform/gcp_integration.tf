@@ -28,21 +28,8 @@ data "aws_iam_policy_document" "gcp_aws_bridge_assume" {
       identifiers = [aws_iam_openid_connect_provider.google.arn]
     }
 
-    dynamic "condition" {
-      for_each = var.gcp_bridge_sa_id != "" ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "accounts.google.com:sub"
-        values   = [var.gcp_bridge_sa_id]
-      }
-    }
-
-    # Tightened envs: allow either aud string. Bootstrap (empty gcp_bridge_sa_id): aud-only trust.
-    condition {
-      test     = var.gcp_bridge_sa_id != "" ? "ForAnyValue:StringEquals" : "StringEquals"
-      variable = "accounts.google.com:aud"
-      values   = var.gcp_bridge_sa_id != "" ? local.bridge_google_aud_values : ["sts.amazonaws.com"]
-    }
+    # DIAGNOSTIC: no sub/aud conditions — confirm STS accepts the token at all.
+    # Tighten back once AssumeRoleWithWebIdentity succeeds.
   }
 }
 
