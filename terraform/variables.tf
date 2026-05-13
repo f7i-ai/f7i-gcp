@@ -32,6 +32,12 @@ variable "gcp_bridge_sa_id" {
   default     = ""
 }
 
+variable "ci_deployer_sa_email" {
+  description = "GCP service account used by GitHub Actions to apply this Terraform. Granted roles/owner on var.project_id below — the GCP analog of the AWS AdministratorAccess attachment on the github_terraform role."
+  type        = string
+  default     = "terraform-github-ci@anomaly-detection-496003.iam.gserviceaccount.com"
+}
+
 variable "vertex_trainer_image" {
   description = "Container image URI for Vertex AI CustomJobs. Defaults to a public python:3.11-slim — fine for the prototype that just echoes env vars. Override with an Artifact Registry image once the real training container is published."
   type        = string

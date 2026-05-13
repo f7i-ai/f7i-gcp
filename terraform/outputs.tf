@@ -48,20 +48,6 @@ output "public_invoker_hint" {
   value       = var.manage_cloud_function_public_invoker ? null : "gcloud functions add-invoker-policy-binding ${google_cloudfunctions2_function.aws_bridge.name} --project=${var.project_id} --region=${var.region} --member=allUsers"
 }
 
-output "vertex_trainer_ci_grant_hint" {
-  description = "One-time grants the project owner must run for the CI deployer SA so it can manage the vertex-trainer stack (Workload Identity Pool + project IAM + SA self-binding)."
-  value       = <<-EOT
-    # Run once as a project owner. Replace CI_SA with your terraform CI service account.
-    CI_SA=terraform-github-ci@anomaly-detection-496003.iam.gserviceaccount.com
-    for role in roles/iam.workloadIdentityPoolAdmin \
-                roles/resourcemanager.projectIamAdmin \
-                roles/iam.serviceAccountAdmin; do
-      gcloud projects add-iam-policy-binding ${var.project_id} \
-        --member=serviceAccount:$CI_SA --role=$role
-    done
-  EOT
-}
-
 output "vertex_trainer_lambda_name" {
   description = "AWS Lambda function name for the vertex-trainer."
   value       = aws_lambda_function.vertex_trainer.function_name

@@ -57,3 +57,16 @@ resource "aws_iam_role_policy_attachment" "github_terraform_admin" {
   role       = aws_iam_role.github_terraform[0].name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+# GCP analog: grant the CI deployer SA roles/owner on this project. Editor
+# (the default) can't manage IAM policies, which the vertex-trainer stack
+# needs (Workload Identity Pool, project IAM binding, SA self-binding).
+# Bootstrap once: a project owner must run --
+#   gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+#     --member=serviceAccount:${ci_deployer_sa_email} --role=roles/owner
+# After that, this binding is Terraform-managed and CI can apply.
+resource "google_project_iam_member" "github_terraform_owner" {
+  project = var.project_id
+  role    = "roles/owner"
+  member  = "serviceAccount:${var.ci_deployer_sa_email}"
+}
