@@ -124,8 +124,9 @@ resource "null_resource" "vertex_trainer_build" {
   }
 
   provisioner "local-exec" {
+    # POSIX sh — CI uses dash, which rejects `set -o pipefail`. Plain `set -eu` is enough.
     command = <<-EOT
-      set -euo pipefail
+      set -eu
       rm -rf ${local.vertex_trainer_build}
       mkdir -p ${local.vertex_trainer_build}
       python3 -m pip install --quiet --target ${local.vertex_trainer_build} \
