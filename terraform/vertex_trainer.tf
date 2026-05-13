@@ -112,36 +112,36 @@ resource "aws_iam_role_policy_attachment" "vertex_trainer_lambda_basic" {
 locals {
   vertex_trainer_src     = "${path.module}/../lambdas/vertex-trainer"
   vertex_trainer_build   = "${local.vertex_trainer_src}/build"
+  vertex_trainer_zip     = "/tmp/vertex-trainer-${var.environment}.zip"
   vertex_trainer_sources = fileset(local.vertex_trainer_src, "*.py")
+  vertex_trainer_hash = sha1(join(",", concat(
+    [filemd5("${local.vertex_trainer_src}/requirements.txt")],
+    [for f in local.vertex_trainer_sources : filemd5("${local.vertex_trainer_src}/${f}")],
+  )))
 }
 
-# Install requirements + stage .py files into ./build/ so archive_file can zip.
-# Re-runs only when requirements.txt or any source file changes.
+# Build the deployment package (pip install + sources + zip) in one shot.
+# Both the build directory and the zip are produced at apply time, so the
+# Lambda resource references the zip path directly — no archive_file data
+# source (which would be evaluated at plan time, before the dir exists).
 resource "null_resource" "vertex_trainer_build" {
   triggers = {
-    requirements = filemd5("${local.vertex_trainer_src}/requirements.txt")
-    sources      = sha1(join(",", [for f in local.vertex_trainer_sources : filemd5("${local.vertex_trainer_src}/${f}")]))
+    content_hash = local.vertex_trainer_hash
   }
 
   provisioner "local-exec" {
     # POSIX sh — CI uses dash, which rejects `set -o pipefail`. Plain `set -eu` is enough.
     command = <<-EOT
       set -eu
-      rm -rf ${local.vertex_trainer_build}
+      rm -rf ${local.vertex_trainer_build} ${local.vertex_trainer_zip}
       mkdir -p ${local.vertex_trainer_build}
       python3 -m pip install --quiet --target ${local.vertex_trainer_build} \
         --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
         --only-binary=:all: --upgrade -r ${local.vertex_trainer_src}/requirements.txt
       cp ${local.vertex_trainer_src}/*.py ${local.vertex_trainer_build}/
+      cd ${local.vertex_trainer_build} && zip -qr ${local.vertex_trainer_zip} .
     EOT
   }
-}
-
-data "archive_file" "vertex_trainer_zip" {
-  type        = "zip"
-  source_dir  = local.vertex_trainer_build
-  output_path = "/tmp/vertex-trainer-${var.environment}.zip"
-  depends_on  = [null_resource.vertex_trainer_build]
 }
 
 # ── AWS: Lambda function ─────────────────────────────────────────────────────
@@ -152,10 +152,12 @@ resource "aws_lambda_function" "vertex_trainer" {
   role             = aws_iam_role.vertex_trainer_lambda.arn
   runtime          = "python3.12"
   handler          = "handler.handler"
-  filename         = data.archive_file.vertex_trainer_zip.output_path
-  source_code_hash = data.archive_file.vertex_trainer_zip.output_base64sha256
+  filename         = local.vertex_trainer_zip
+  source_code_hash = local.vertex_trainer_hash
   timeout          = 900
   memory_size      = 2048
+
+  depends_on = [null_resource.vertex_trainer_build]
 
   environment {
     variables = {
