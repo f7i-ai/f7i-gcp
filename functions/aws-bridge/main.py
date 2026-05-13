@@ -32,35 +32,22 @@ import requests
 # ── OIDC helpers ──────────────────────────────────────────────────────────────
 
 def _get_google_oidc_token(audience: str) -> str:
-    """Mint a Google **ID** token via IAM Credentials `generateIdToken`.
+    """Mint a Google ID token via the GCP metadata server (Compute Engine identity endpoint).
 
-    Register the same **audience** on `aws_iam_openid_connect_provider` client_id_list
-    and in the role trust `accounts.google.com:aud` condition.
+    This is the standard path for Cloud Functions / Cloud Run — the token is issued
+    directly for the workload's service account and verified by Google's OIDC JWKS.
     """
-    import google.auth
     import google.auth.transport.requests
+    from google.auth import compute_engine
 
-    auth_req = google.auth.transport.requests.Request()
-    creds, _ = google.auth.default()
-    creds.refresh(auth_req)
-    access_token = creds.token
-    sa_email = getattr(creds, "service_account_email", None)
-    if not sa_email:
-        raise RuntimeError("Expected GCP service account credentials (missing service_account_email)")
-
-    url = f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa_email}:generateIdToken"
-    r = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=utf-8",
-        },
-        json={"audience": audience, "includeEmail": False},
-        timeout=60,
+    request = google.auth.transport.requests.Request()
+    credentials = compute_engine.IDTokenCredentials(
+        request,
+        target_audience=audience,
+        use_metadata_identity_endpoint=True,
     )
-    if not r.ok:
-        raise RuntimeError(f"generateIdToken HTTP {r.status_code}: {r.text[:800]}")
-    return r.json()["token"]
+    credentials.refresh(request)
+    return credentials.token
 
 
 def _sts_xml_field(xml: str, tag: str) -> str | None:
