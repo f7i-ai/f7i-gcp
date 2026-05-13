@@ -3,7 +3,9 @@
 
 resource "aws_iam_openid_connect_provider" "google" {
   url = "https://accounts.google.com"
-  # JWT `aud` must appear here. Google may return either form for the STS audience.
+  # AWS STS substitutes the JWT `azp` claim for `aud` when both are present.
+  # Google metadata-server tokens set `azp` to the SA's numeric unique ID, so that
+  # value (not the requested audience URL) is what STS validates against this list.
   client_id_list = local.bridge_google_aud_values
 
   # Google's stable root CA thumbprint
@@ -11,11 +13,11 @@ resource "aws_iam_openid_connect_provider" "google" {
 }
 
 locals {
-  # JWT `aud` must appear on the IAM OIDC provider. Google may return either form for the STS audience.
-  bridge_google_aud_values = [
+  bridge_google_aud_values = compact([
+    var.gcp_bridge_sa_id,
     "sts.amazonaws.com",
     "https://sts.amazonaws.com",
-  ]
+  ])
 }
 
 data "aws_iam_policy_document" "gcp_aws_bridge_assume" {
@@ -28,12 +30,13 @@ data "aws_iam_policy_document" "gcp_aws_bridge_assume" {
       identifiers = [aws_iam_openid_connect_provider.google.arn]
     }
 
-    # AWS requires this condition for any Google OIDC trust policy.
-    # The function mints the token with audience "https://sts.amazonaws.com".
+    # AWS STS uses the JWT `azp` claim as the effective audience for Google tokens
+    # when both `aud` and `azp` are present. For metadata-server tokens, `azp` is
+    # the SA's numeric unique ID — that's what this condition must match.
     condition {
       test     = "StringEquals"
       variable = "accounts.google.com:aud"
-      values   = ["https://sts.amazonaws.com"]
+      values   = [var.gcp_bridge_sa_id]
     }
   }
 }
