@@ -111,7 +111,7 @@ resource "google_cloudfunctions2_function" "vertex_completion_bridge" {
     service_account_email          = google_service_account.vertex_completion_fn.email
     max_instance_count             = 5
     min_instance_count             = 0
-    available_memory               = "256M"
+    available_memory               = "512M"
     timeout_seconds                = 60
     all_traffic_on_latest_revision = true
 

@@ -7,4 +7,5 @@ environment = "dev"
 # If false, run once as a project owner: see output public_invoker_hint after apply.
 manage_cloud_function_public_invoker = false
 
-gcp_bridge_sa_id = "104252570082934414326"
+gcp_bridge_sa_id            = "104252570082934414326"
+gcp_vertex_completion_sa_id = "105382500043749229905"
