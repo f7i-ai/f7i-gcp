@@ -135,7 +135,28 @@ resource "google_cloudfunctions2_function" "vertex_completion_bridge" {
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 
+  # google_cloudfunctions2_function has a long-standing bug where in-place
+  # updates to environment_variables that depend on values "known after
+  # apply" fail with "Provider produced inconsistent final plan". Force
+  # replacement on env-var content changes — the function is small and
+  # stateless, recreate is cheap.
+  lifecycle {
+    replace_triggered_by = [terraform_data.vertex_completion_env_hash]
+  }
+
   depends_on = [google_project_service.core_apis]
+}
+
+resource "terraform_data" "vertex_completion_env_hash" {
+  input = jsonencode({
+    project             = var.project_id
+    location            = var.region
+    aws_role_arn        = aws_iam_role.gcp_vertex_completion.arn
+    aws_region          = var.aws_region
+    aws_eventbridge_bus = aws_cloudwatch_event_bus.bridge.name
+    aws_model_s3_bucket = aws_s3_bucket.vertex_models.id
+    aws_model_s3_prefix = "vertex-trainer"
+  })
 }
 
 # ── AWS: dedicated IAM role for this bridge ──────────────────────────────────
