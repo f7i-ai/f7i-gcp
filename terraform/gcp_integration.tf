@@ -2,24 +2,46 @@
 # One per AWS account — shared across all GCP SA integrations.
 
 resource "aws_iam_openid_connect_provider" "google" {
-  url            = "https://accounts.google.com"
-  client_id_list = ["sts.amazonaws.com"]
+  url = "https://accounts.google.com"
+  # JWT `aud` must appear here. Google may return either form for the STS audience.
+  client_id_list = local.bridge_google_aud_values
 
   # Google's stable root CA thumbprint
   thumbprint_list = ["08745487e891c19e3078c1f2a07e452950ef36f6"]
 }
 
 locals {
-  # When gcp_bridge_sa_id is set, lock the trust down to that specific SA.
-  # On first bootstrap pass leave it empty — tighten after GCP apply.
-  bridge_trust_condition = var.gcp_bridge_sa_id != "" ? {
-    StringEquals = {
-      "accounts.google.com:aud" = "sts.amazonaws.com"
-      "accounts.google.com:sub" = var.gcp_bridge_sa_id
+  # JWT `aud` must appear on the IAM OIDC provider. Google may return either form for the STS audience.
+  bridge_google_aud_values = [
+    "sts.amazonaws.com",
+    "https://sts.amazonaws.com",
+  ]
+}
+
+data "aws_iam_policy_document" "gcp_aws_bridge_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.google.arn]
     }
-  } : {
-    StringEquals = {
-      "accounts.google.com:aud" = "sts.amazonaws.com"
+
+    dynamic "condition" {
+      for_each = var.gcp_bridge_sa_id != "" ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "accounts.google.com:sub"
+        values   = [var.gcp_bridge_sa_id]
+      }
+    }
+
+    # Tightened envs: allow either aud string. Bootstrap (empty gcp_bridge_sa_id): aud-only trust.
+    condition {
+      test     = var.gcp_bridge_sa_id != "" ? "ForAnyValue:StringEquals" : "StringEquals"
+      variable = "accounts.google.com:aud"
+      values   = var.gcp_bridge_sa_id != "" ? local.bridge_google_aud_values : ["sts.amazonaws.com"]
     }
   }
 }
@@ -29,15 +51,7 @@ resource "aws_iam_role" "gcp_aws_bridge" {
   name        = "gcp-aws-bridge-${var.environment}"
   description = "Assumed by GCP SA aws-bridge-fn-${var.environment} via Google OIDC."
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.google.arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = local.bridge_trust_condition
-    }]
-  })
+  assume_role_policy = data.aws_iam_policy_document.gcp_aws_bridge_assume.json
 
   tags = {
     ManagedBy   = "terraform"

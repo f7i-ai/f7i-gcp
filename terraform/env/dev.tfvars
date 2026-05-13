@@ -7,8 +7,4 @@ environment = "dev"
 # If false, run once as a project owner: see output public_invoker_hint after apply.
 manage_cloud_function_public_invoker = false
 
-# After first apply, get the SA numeric ID and uncomment:
-# gcp_bridge_sa_id = "123456789012345678901"
-# Run: gcloud iam service-accounts describe \
-#        aws-bridge-fn-dev@anomaly-detection-dev-496103.iam.gserviceaccount.com \
-#        --format='value(uniqueId)'
+gcp_bridge_sa_id = "104252570082934414326"

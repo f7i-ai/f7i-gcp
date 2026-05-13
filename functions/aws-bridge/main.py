@@ -22,23 +22,24 @@ import json
 import os
 
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 import functions_framework
 
 
 # ── OIDC helpers ──────────────────────────────────────────────────────────────
 
-def _get_google_oidc_token() -> str:
-    """Return a Google-signed OIDC token with aud=sts.amazonaws.com for AWS STS.
+def _get_google_oidc_token(audience: str) -> str:
+    """Return a Google OIDC ID token via generateIdToken.
 
-    fetch_id_token() via the metadata server can yield an audience AWS rejects
-    (InvalidIdentityToken / Incorrect token audience). generateIdToken always
-    sets aud to the value we pass.
+    For AWS, aud must be **sts.amazonaws.com** (register that client_id on the Google
+    IAM OIDC provider). IAM trust policies must include StringEquals on
+    accounts.google.com:aud — see AWS error “requires a StringEquals condition on an application id”.
     """
     import google.auth
     import google.auth.transport.requests
     import requests
 
-    audience = "sts.amazonaws.com"
     auth_req = google.auth.transport.requests.Request()
     creds, _ = google.auth.default()
     creds.refresh(auth_req)
@@ -55,7 +56,7 @@ def _get_google_oidc_token() -> str:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=utf-8",
         },
-        json={"audience": audience, "includeEmail": True},
+        json={"audience": audience, "includeEmail": False},
         timeout=60,
     )
     if not r.ok:
@@ -65,14 +66,21 @@ def _get_google_oidc_token() -> str:
 
 def _assume_aws_role(role_arn: str, region: str) -> dict:
     """Exchange the Google OIDC token for temporary AWS credentials."""
-    oidc_token = _get_google_oidc_token()
+    oidc_token = _get_google_oidc_token("sts.amazonaws.com")
 
-    sts = boto3.client("sts", region_name=region)
+    # AssumeRoleWithWebIdentity is unsigned. Pin global STS and avoid regional sts.<region>.amazonaws.com,
+    # which fails this Google OIDC flow with AccessDenied in practice.
+    sts = boto3.client(
+        "sts",
+        region_name="us-east-1",
+        endpoint_url="https://sts.amazonaws.com",
+        config=Config(signature_version=UNSIGNED),
+    )
     response = sts.assume_role_with_web_identity(
         RoleArn=role_arn,
         RoleSessionName="gcp-aws-bridge",
         WebIdentityToken=oidc_token,
-        DurationSeconds=900,  # 15 min — enough for a single invocation
+        DurationSeconds=900,
     )
     return response["Credentials"]
 
