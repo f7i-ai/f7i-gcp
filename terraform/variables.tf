@@ -45,9 +45,9 @@ variable "ci_deployer_sa_email" {
 }
 
 variable "vertex_trainer_image" {
-  description = "Container image URI for Vertex AI CustomJobs. Defaults to a public python:3.11-slim — fine for the prototype that just echoes env vars. Override with an Artifact Registry image once the real training container is published."
+  description = "Container image URI for Vertex AI CustomJobs. Defaults to the Artifact Registry image built from containers/vertex-trainer/. Override with a public image (e.g. python:3.11-slim) for smoke tests that don't need real training."
   type        = string
-  default     = "python:3.11-slim"
+  default     = "australia-southeast1-docker.pkg.dev/anomaly-detection-dev-496103/vertex-trainer/lstm-vae:latest"
 }
 
 variable "vertex_machine_type" {
