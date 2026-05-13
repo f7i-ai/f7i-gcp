@@ -7,6 +7,8 @@ on:
     paths:
       - "terraform/**"
       - "functions/**"
+      - "containers/**"
+      - "lambdas/**"
       - ".github/workflows/terraform-dev.yml"
   workflow_dispatch:
 
