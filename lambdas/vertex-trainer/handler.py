@@ -110,6 +110,7 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     location       = os.environ["VERTEX_LOCATION"]
     staging_bucket = os.environ["GCS_STAGING_BUCKET"]
     image_uri      = os.environ["VERTEX_TRAINER_IMAGE"]
+    code_uri       = os.environ["VERTEX_CODE_URI"]
     machine_type   = os.environ.get("VERTEX_MACHINE_TYPE", "n1-standard-4")
     service_account = os.environ["VERTEX_TRAINER_SA"]
 
@@ -139,6 +140,24 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     job_name    = f"vertex-trainer-{sensor_id}-{run_id[-8:]}"
     base_output = f"gs://{staging_bucket}/output/{job_name}/"
 
+    # Vertex's prebuilt PyTorch image already has torch + numpy + pandas +
+    # sklearn + google-cloud-storage. We just need to drop our entrypoint
+    # shim + lstm_vae_train.py into the container and run them. Two-step:
+    # download the code zip from GCS using the bundled python/google-cloud-
+    # storage, unzip into /opt/code, exec entrypoint.py with hyperparam args.
+    bootstrap_script = (
+        "set -e\n"
+        'python -c "'
+        "import os; from urllib.parse import urlparse; "
+        "from google.cloud import storage; "
+        "u=urlparse(os.environ['CODE_PACKAGE_URI']); "
+        "storage.Client().bucket(u.netloc).blob(u.path.lstrip('/'))"
+        ".download_to_filename('/tmp/code.zip')"
+        '"\n'
+        "mkdir -p /opt/code && cd /opt/code && unzip -qq /tmp/code.zip\n"
+        'exec python /opt/code/entrypoint.py "$@"\n'
+    )
+
     job = aiplatform.CustomJob(
         display_name=job_name,
         worker_pool_specs=[{
@@ -146,8 +165,12 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             "replica_count": 1,
             "container_spec": {
                 "image_uri": image_uri,
-                "args":      _hps_to_args(hps),
+                "command":   ["bash", "-c"],
+                # bash -c semantics: args[0] is the script, args[1] becomes $0
+                # (a conventional script name), the rest are positional ($@).
+                "args": [bootstrap_script, "vertex-trainer", *_hps_to_args(hps)],
                 "env": [
+                    {"name": "CODE_PACKAGE_URI",     "value": code_uri},
                     {"name": "INPUT_TRAIN_URI",      "value": train_uri},
                     {"name": "INPUT_VALIDATION_URI", "value": validation_uri},
                     {"name": "INPUT_LABELS_URI",     "value": labels_uri},

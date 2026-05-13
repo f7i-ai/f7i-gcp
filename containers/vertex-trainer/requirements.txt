@@ -1,7 +1,0 @@
-# CPU-only torch keeps the image ~700MB instead of multi-GB.
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.0.1+cpu
-numpy==1.26.*
-pandas==2.*
-scikit-learn==1.*
-google-cloud-storage==2.*

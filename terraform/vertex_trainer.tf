@@ -144,6 +144,24 @@ resource "null_resource" "vertex_trainer_build" {
   }
 }
 
+# ── Training code uploaded to GCS — Vertex job pulls it at start ─────────────
+# We use Vertex's prebuilt PyTorch container, so there's no Docker image to
+# build. Instead we ship the entrypoint shim + vendored lstm_vae_train.py as
+# a zip into GCS; the CustomJob's container_spec downloads + extracts +
+# executes it at startup.
+
+data "archive_file" "vertex_trainer_code_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../containers/vertex-trainer"
+  output_path = "/tmp/vertex-trainer-code-${var.environment}.zip"
+}
+
+resource "google_storage_bucket_object" "vertex_trainer_code" {
+  name   = "code/vertex-trainer-${data.archive_file.vertex_trainer_code_zip.output_md5}.zip"
+  bucket = google_storage_bucket.vertex_trainer_staging.name
+  source = data.archive_file.vertex_trainer_code_zip.output_path
+}
+
 # ── AWS: Lambda function ─────────────────────────────────────────────────────
 
 resource "aws_lambda_function" "vertex_trainer" {
@@ -168,6 +186,7 @@ resource "aws_lambda_function" "vertex_trainer" {
       VERTEX_TRAINER_SA    = google_service_account.vertex_trainer.email
       VERTEX_TRAINER_IMAGE = var.vertex_trainer_image
       VERTEX_MACHINE_TYPE  = var.vertex_machine_type
+      VERTEX_CODE_URI      = "gs://${google_storage_bucket.vertex_trainer_staging.name}/${google_storage_bucket_object.vertex_trainer_code.name}"
       GCP_WIF_CONFIG_JSON = jsonencode({
         type                              = "external_account"
         audience                          = "//iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.aws_pool.workload_identity_pool_id}/providers/${google_iam_workload_identity_pool_provider.aws_provider.workload_identity_pool_provider_id}"

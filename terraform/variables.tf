@@ -45,9 +45,9 @@ variable "ci_deployer_sa_email" {
 }
 
 variable "vertex_trainer_image" {
-  description = "Container image URI for Vertex AI CustomJobs. Defaults to the Artifact Registry image built from containers/vertex-trainer/. Override with a public image (e.g. python:3.11-slim) for smoke tests that don't need real training."
+  description = "Container image URI for Vertex AI CustomJobs. Defaults to Vertex's prebuilt PyTorch CPU image — already has torch, numpy, pandas, sklearn, and google-cloud-storage. The Lambda's CustomJob spec downloads our entrypoint + training code from GCS at job start, so no Docker build is needed."
   type        = string
-  default     = "australia-southeast1-docker.pkg.dev/anomaly-detection-dev-496103/vertex-trainer/lstm-vae:latest"
+  default     = "us-docker.pkg.dev/vertex-ai/training/pytorch-cpu.2-3.py310:latest"
 }
 
 variable "vertex_machine_type" {
