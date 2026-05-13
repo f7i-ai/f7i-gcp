@@ -26,12 +26,14 @@ resource "google_logging_project_sink" "vertex_job_completions" {
   name        = "vertex-job-completions-${var.environment}"
   destination = "pubsub.googleapis.com/${google_pubsub_topic.vertex_job_completions.id}"
 
+  # Vertex CustomJobs log under resource.type="ml_job" with plain textPayload
+  # strings — there's no jsonPayload.state field. Match the terminal-state
+  # messages the service emits when the job leaves the running state.
   filter = <<-EOT
-    resource.type="aiplatform.googleapis.com/CustomJob"
-    (jsonPayload.state="JOB_STATE_SUCCEEDED" OR
-     jsonPayload.state="JOB_STATE_FAILED" OR
-     jsonPayload.state="JOB_STATE_CANCELLED" OR
-     jsonPayload.state="JOB_STATE_EXPIRED")
+    resource.type="ml_job"
+    (textPayload:"Job completed successfully"
+     OR textPayload:"Job failed"
+     OR textPayload:"Job cancelled")
   EOT
 
   unique_writer_identity = true
