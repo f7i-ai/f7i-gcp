@@ -77,6 +77,15 @@ resource "google_project_iam_member" "vertex_completion_eventarc_receiver" {
   member  = "serviceAccount:${google_service_account.vertex_completion_fn.email}"
 }
 
+# Bridge needs to read the trained model.tar.gz + metrics.json that the
+# CustomJob wrote into the staging bucket so it can copy the artifact to S3
+# and enrich the EventBridge event with metrics.
+resource "google_storage_bucket_iam_member" "vertex_completion_bucket_reader" {
+  bucket = google_storage_bucket.vertex_trainer_staging.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.vertex_completion_fn.email}"
+}
+
 # ── GCP: Cloud Function (Gen 2, Pub/Sub triggered) ───────────────────────────
 
 data "archive_file" "vertex_completion_zip" {
