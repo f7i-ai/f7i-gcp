@@ -76,12 +76,16 @@ def _stage_channels(client: storage.Client) -> None:
         os.environ[SM_ENV_BY_CHANNEL[channel]] = dest
 
 
+_HERE = Path(__file__).resolve().parent
+_TRAINING_SCRIPT = _HERE / "sagemaker_rl" / "lstm_vae_train.py"
+
+
 def _run_training(extra_args: list[str]) -> str:
     """Run the training script, tee its stdout to a buffer for metric parsing."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     os.environ["SM_MODEL_DIR"] = str(MODEL_DIR)
 
-    cmd = ["python", "/opt/training/lstm_vae_train.py", *extra_args]
+    cmd = ["python", str(_TRAINING_SCRIPT), *extra_args]
     print(f"[shim] launching: {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
