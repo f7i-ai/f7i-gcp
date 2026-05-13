@@ -28,8 +28,13 @@ data "aws_iam_policy_document" "gcp_aws_bridge_assume" {
       identifiers = [aws_iam_openid_connect_provider.google.arn]
     }
 
-    # DIAGNOSTIC: no sub/aud conditions — confirm STS accepts the token at all.
-    # Tighten back once AssumeRoleWithWebIdentity succeeds.
+    # AWS requires this condition for any Google OIDC trust policy.
+    # The function mints the token with audience "sts.amazonaws.com".
+    condition {
+      test     = "StringEquals"
+      variable = "accounts.google.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
   }
 }
 
