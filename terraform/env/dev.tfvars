@@ -8,3 +8,8 @@ environment = "dev"
 manage_cloud_function_public_invoker = false
 
 gcp_bridge_sa_id = "104252570082934414326"
+
+# Vertex AI training image (Artifact Registry). Empty until the training
+# container is published — the Lambda will deploy successfully but invoking
+# it will fail until this is set, since it's required when submitting the job.
+vertex_trainer_image = ""

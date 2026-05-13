@@ -48,6 +48,26 @@ output "public_invoker_hint" {
   value       = var.manage_cloud_function_public_invoker ? null : "gcloud functions add-invoker-policy-binding ${google_cloudfunctions2_function.aws_bridge.name} --project=${var.project_id} --region=${var.region} --member=allUsers"
 }
 
+output "vertex_trainer_lambda_name" {
+  description = "AWS Lambda function name for the vertex-trainer."
+  value       = aws_lambda_function.vertex_trainer.function_name
+}
+
+output "vertex_trainer_lambda_role_arn" {
+  description = "Execution role ARN of the vertex-trainer Lambda (federated principal in the GCP WIF pool)."
+  value       = aws_iam_role.vertex_trainer_lambda.arn
+}
+
+output "vertex_trainer_sa_email" {
+  description = "GCP service account the Lambda impersonates and Vertex CustomJobs run as."
+  value       = google_service_account.vertex_trainer.email
+}
+
+output "vertex_trainer_staging_bucket" {
+  description = "GCS bucket holding training inputs and Vertex CustomJob outputs."
+  value       = google_storage_bucket.vertex_trainer_staging.name
+}
+
 output "service_account_token_creator_hint" {
   description = "Run once as project owner: function SA must grant Token Creator to itself for generateIdToken→AWS (CI usually cannot setIamPolicy on this SA)."
   value       = "gcloud iam service-accounts add-iam-policy-binding ${google_service_account.aws_bridge_fn.email} --project=${var.project_id} --member=serviceAccount:${google_service_account.aws_bridge_fn.email} --role=roles/iam.serviceAccountTokenCreator"

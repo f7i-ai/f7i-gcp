@@ -19,6 +19,8 @@ resource "google_project_service" "core_apis" {
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",
     "iamcredentials.googleapis.com",
+    "aiplatform.googleapis.com",
+    "sts.googleapis.com",
   ])
 
   project            = var.project_id

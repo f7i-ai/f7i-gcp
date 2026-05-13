@@ -32,6 +32,18 @@ variable "gcp_bridge_sa_id" {
   default     = ""
 }
 
+variable "vertex_trainer_image" {
+  description = "Artifact Registry URI of the training container image used for Vertex AI CustomJobs. Must be published separately (the vertex-trainer Lambda only submits jobs; it does not build the image)."
+  type        = string
+  default     = ""
+}
+
+variable "vertex_machine_type" {
+  description = "Vertex AI worker machine type for the training CustomJob (e.g. n1-standard-4, n1-highmem-8)."
+  type        = string
+  default     = "n1-standard-4"
+}
+
 variable "manage_cloud_function_public_invoker" {
   description = "If true, grants allUsers cloudfunctions.invoker on the Gen2 HTTP function. Requires the Terraform/deployer identity to have permission cloudfunctions.functions.setIamPolicy (e.g. roles/cloudfunctions.admin). Leave false if CI uses a narrower SA and add the binding once via gcloud/Console."
   type        = bool

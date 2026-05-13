@@ -8,7 +8,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      ManagedBy  = "terraform"
+      ManagedBy   = "terraform"
       Environment = var.environment
       Repository  = "f7i-ai/f7i-gcp"
     }
