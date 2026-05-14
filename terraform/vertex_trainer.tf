@@ -63,10 +63,13 @@ data "aws_ssm_parameters_by_path" "predict_consumer_role_arns" {
 }
 
 locals {
-  predict_consumer_assumed_role_arns = [
+  # nonsensitive(): aws_ssm_parameters_by_path.values is provider-flagged
+  # sensitive because SSM can hold SecureStrings; IAM role ARNs aren't
+  # secret and for_each rejects sensitive values, so strip the flag.
+  predict_consumer_assumed_role_arns = nonsensitive([
     for arn in data.aws_ssm_parameters_by_path.predict_consumer_role_arns.values :
     replace(replace(arn, "arn:aws:iam:", "arn:aws:sts:"), ":role/", ":assumed-role/")
-  ]
+  ])
 }
 
 resource "google_service_account_iam_member" "vertex_trainer_wif_predict_consumers" {
